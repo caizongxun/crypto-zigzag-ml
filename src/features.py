@@ -84,7 +84,15 @@ class FeatureEngineer:
         """
         Add moving average and trend features.
         """
-        for period in self.lookback_periods:
+        # Filter lookback periods based on data length
+        max_period = len(df) // 3
+        valid_periods = [p for p in self.lookback_periods if p < max_period]
+        
+        # If no valid periods, use minimal ones
+        if not valid_periods:
+            valid_periods = [5, 10]
+        
+        for period in valid_periods:
             # Simple moving averages
             df[f'sma_{period}'] = df['close'].rolling(window=period).mean()
             df[f'sma_ratio_{period}'] = df['close'] / (df[f'sma_{period}'] + 1e-8)
@@ -96,9 +104,19 @@ class FeatureEngineer:
             # Distance to MAs
             df[f'distance_sma_{period}'] = (df['close'] - df[f'sma_{period}']) / (df[f'sma_{period}'] + 1e-8)
         
-        # Trend strength
-        df['trend_strength_10'] = (df['sma_10'] - df['sma_20']) / (df['close'] + 1e-8)
-        df['trend_strength_20'] = (df['sma_20'] - df['sma_50']) / (df['close'] + 1e-8)
+        # Trend strength (only if we have enough periods)
+        if len(valid_periods) >= 2 and valid_periods[-1] >= 20:
+            idx_10 = valid_periods[0] if valid_periods[0] == 10 else (1 if len(valid_periods) > 1 else 0)
+            idx_20 = next((i for i, p in enumerate(valid_periods) if p == 20), None)
+            idx_50 = next((i for i, p in enumerate(valid_periods) if p >= 50), None)
+            
+            if idx_10 is not None and idx_20 is not None:
+                p1, p2 = valid_periods[idx_10], valid_periods[idx_20]
+                df['trend_strength_10'] = (df[f'sma_{p1}'] - df[f'sma_{p2}']) / (df['close'] + 1e-8)
+            
+            if idx_20 is not None and idx_50 is not None:
+                p1, p2 = valid_periods[idx_20], valid_periods[idx_50]
+                df['trend_strength_20'] = (df[f'sma_{p1}'] - df[f'sma_{p2}']) / (df['close'] + 1e-8)
         
         return df
     
@@ -112,7 +130,8 @@ class FeatureEngineer:
         
         # Historical volatility
         for period in [5, 10, 20]:
-            df[f'volatility_{period}'] = df['close'].pct_change().rolling(window=period).std()
+            if period < len(df) // 3:
+                df[f'volatility_{period}'] = df['close'].pct_change().rolling(window=period).std()
         
         # Bollinger Bands
         df = self._add_bollinger_bands(df)
@@ -164,12 +183,13 @@ class FeatureEngineer:
         """
         # Highest high and lowest low
         for period in [10, 20, 50]:
-            df[f'highest_high_{period}'] = df['high'].rolling(window=period).max()
-            df[f'lowest_low_{period}'] = df['low'].rolling(window=period).min()
-            
-            # Distance to support/resistance
-            df[f'distance_resistance_{period}'] = (df[f'highest_high_{period}'] - df['close']) / df['close']
-            df[f'distance_support_{period}'] = (df['close'] - df[f'lowest_low_{period}']) / df['close']
+            if period < len(df) // 3:
+                df[f'highest_high_{period}'] = df['high'].rolling(window=period).max()
+                df[f'lowest_low_{period}'] = df['low'].rolling(window=period).min()
+                
+                # Distance to support/resistance
+                df[f'distance_resistance_{period}'] = (df[f'highest_high_{period}'] - df['close']) / df['close']
+                df[f'distance_support_{period}'] = (df['close'] - df[f'lowest_low_{period}']) / df['close']
         
         return df
     
@@ -231,14 +251,15 @@ class FeatureEngineer:
         """
         Add Bollinger Bands features.
         """
-        df[f'bb_mid_{period}'] = df['close'].rolling(window=period).mean()
-        bb_std = df['close'].rolling(window=period).std()
-        df[f'bb_upper_{period}'] = df[f'bb_mid_{period}'] + (std_dev * bb_std)
-        df[f'bb_lower_{period}'] = df[f'bb_mid_{period}'] - (std_dev * bb_std)
-        
-        # BB percentage
-        df[f'bb_percent_{period}'] = (df['close'] - df[f'bb_lower_{period}']) / \
-                                      (df[f'bb_upper_{period}'] - df[f'bb_lower_{period}'] + 1e-8)
+        if period < len(df) // 3:
+            df[f'bb_mid_{period}'] = df['close'].rolling(window=period).mean()
+            bb_std = df['close'].rolling(window=period).std()
+            df[f'bb_upper_{period}'] = df[f'bb_mid_{period}'] + (std_dev * bb_std)
+            df[f'bb_lower_{period}'] = df[f'bb_mid_{period}'] - (std_dev * bb_std)
+            
+            # BB percentage
+            df[f'bb_percent_{period}'] = (df['close'] - df[f'bb_lower_{period}']) / \
+                                          (df[f'bb_upper_{period}'] - df[f'bb_lower_{period}'] + 1e-8)
         
         return df
     
