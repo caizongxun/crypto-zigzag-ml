@@ -198,7 +198,7 @@ class FeatureEngineer:
         Add market structure features.
         """
         # Consecutive up/down bars
-        up_down = np.where(df['close'] > df['open'], 1, -1)
+        up_down = pd.Series(np.where(df['close'] > df['open'], 1, -1), index=df.index)
         df['consecutive_bars'] = up_down * (up_down.groupby((up_down != up_down.shift()).cumsum()).cumcount() + 1)
         
         # Swing highs/lows
