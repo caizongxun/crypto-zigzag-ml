@@ -279,14 +279,20 @@ class FeatureEngineer:
     def get_feature_columns(self, df: pd.DataFrame) -> List[str]:
         """
         Get list of all feature columns (excluding OHLCV and labels).
+        Only returns numeric columns.
         
         Args:
             df: DataFrame with features
             
         Returns:
-            List of feature column names
+            List of feature column names (numeric only)
         """
         exclude_cols = ['open', 'high', 'low', 'close', 'volume', 
-                       'date', 'timestamp', 'zigzag_label']
-        feature_cols = [col for col in df.columns if col not in exclude_cols]
+                       'date', 'timestamp', 'zigzag_label', 'symbol']
+        
+        # Only include numeric columns
+        feature_cols = [col for col in df.columns 
+                       if col not in exclude_cols 
+                       and df[col].dtype in [np.float64, np.float32, np.int64, np.int32]]
+        
         return feature_cols

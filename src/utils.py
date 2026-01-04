@@ -56,9 +56,10 @@ def time_series_split(df: pd.DataFrame, train_ratio: float = 0.8,
     
     return train_df, val_df, test_df
 
-def normalize_data(data: np.ndarray, method: str = 'minmax') -> Tuple[np.ndarray, Dict]:
+def normalize_data(data: np.ndarray, method: str = 'zscore') -> Tuple[np.ndarray, Dict]:
     """
     Normalize data using specified method.
+    Converts to float64 and handles edge cases.
     
     Args:
         data: Input array
@@ -67,17 +68,31 @@ def normalize_data(data: np.ndarray, method: str = 'minmax') -> Tuple[np.ndarray
     Returns:
         Normalized data and normalization parameters
     """
+    # Convert to float64 to ensure numeric operations
+    try:
+        data = np.asarray(data, dtype=np.float64)
+    except (ValueError, TypeError) as e:
+        print(f'Error converting data to float64: {e}')
+        print(f'Data shape: {np.asarray(data).shape}')
+        print(f'Data dtype: {np.asarray(data).dtype}')
+        raise
+    
     params = {}
     
     if method == 'minmax':
         data_min = np.min(data, axis=0)
         data_max = np.max(data, axis=0)
-        normalized = (data - data_min) / (data_max - data_min + 1e-8)
+        # Avoid division by zero
+        range_data = data_max - data_min
+        range_data[range_data == 0] = 1e-8
+        normalized = (data - data_min) / (range_data + 1e-8)
         params = {'min': data_min, 'max': data_max, 'method': 'minmax'}
     
     elif method == 'zscore':
         data_mean = np.mean(data, axis=0)
         data_std = np.std(data, axis=0)
+        # Avoid division by zero
+        data_std[data_std == 0] = 1e-8
         normalized = (data - data_mean) / (data_std + 1e-8)
         params = {'mean': data_mean, 'std': data_std, 'method': 'zscore'}
     
