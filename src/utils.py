@@ -70,7 +70,7 @@ def normalize_data(data: np.ndarray, method: str = 'zscore') -> Tuple[np.ndarray
     """
     # Convert to float64 to ensure numeric operations
     try:
-        data = np.asarray(data, dtype=np.float64)
+        data = np.array(data, dtype=np.float64)
     except (ValueError, TypeError) as e:
         print(f'Error converting data to float64: {e}')
         print(f'Data shape: {np.asarray(data).shape}')
@@ -84,19 +84,25 @@ def normalize_data(data: np.ndarray, method: str = 'zscore') -> Tuple[np.ndarray
         data_max = np.max(data, axis=0)
         # Avoid division by zero
         range_data = data_max - data_min
-        range_data[range_data == 0] = 1e-8
+        range_data = np.where(range_data == 0, 1e-8, range_data)
         normalized = (data - data_min) / (range_data + 1e-8)
         params = {'min': data_min, 'max': data_max, 'method': 'minmax'}
     
     elif method == 'zscore':
-        data_mean = np.mean(data, axis=0)
-        data_std = np.std(data, axis=0)
+        # Calculate mean
+        data_mean = np.mean(data, axis=0, dtype=np.float64)
+        # Calculate standard deviation
+        data_std = np.std(data, axis=0, dtype=np.float64)
         # Avoid division by zero
-        data_std[data_std == 0] = 1e-8
+        data_std = np.where(data_std == 0, 1e-8, data_std)
+        # Normalize
         normalized = (data - data_mean) / (data_std + 1e-8)
         params = {'mean': data_mean, 'std': data_std, 'method': 'zscore'}
     
-    return normalized, params
+    else:
+        raise ValueError(f"Unknown normalization method: {method}")
+    
+    return normalized.astype(np.float64), params
 
 def denormalize_data(data: np.ndarray, params: Dict) -> np.ndarray:
     """
