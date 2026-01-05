@@ -9,7 +9,6 @@ Stage 2 Step 4 Runner - 獨立執行腳本
   !curl -s https://raw.githubusercontent.com/caizongxun/crypto-zigzag-ml/main/scripts/stage2_step4_runner.py | python3
 
 或者：
-  # 下載後執行
   !wget -q https://raw.githubusercontent.com/caizongxun/crypto-zigzag-ml/main/scripts/stage2_step4_runner.py
   !python3 stage2_step4_runner.py
 
@@ -22,7 +21,8 @@ Stage 2 Step 4 Runner - 獨立執行腳本
      - feature_cols: list of feature column names
      - stage1_model: Loaded Keras model
      - STAGE1_SEQUENCE_LENGTH: int (usually 10)
-     - STAGE2_DATA_DIR: Path for saving data
+     - STAGE2_DATA_DIR: Path for saving data (optional)
+     - time_series_split: function for splitting (optional)
 """
 
 import sys
@@ -55,13 +55,36 @@ def create_3d_sequences(X, y, seq_length=10):
     return np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.int32)
 
 
-def validate_inputs(df, feature_cols, stage1_model, STAGE1_SEQUENCE_LENGTH):
+def get_ipython_namespace():
+    """
+    Get the IPython user namespace if available, otherwise return None.
+    """
+    try:
+        import IPython
+        ipython = IPython.get_ipython()
+        if ipython is not None:
+            return ipython.user_ns
+    except (ImportError, AttributeError):
+        pass
+    return None
+
+
+def validate_inputs(user_ns):
     """
     Validate that all required inputs are available.
     """
     print("驗證輸入...")
     
+    # Get from namespace
+    df = user_ns.get('df')
+    feature_cols = user_ns.get('feature_cols')
+    stage1_model = user_ns.get('stage1_model')
+    STAGE1_SEQUENCE_LENGTH = user_ns.get('STAGE1_SEQUENCE_LENGTH', 10)
+    time_series_split = user_ns.get('time_series_split')
+    
     # Check df
+    if df is None:
+        raise ValueError("df 未定義。請確保已執行 Step 1-3")
     if not isinstance(df, object) or not hasattr(df, 'shape'):
         raise ValueError("df 必須是 DataFrame")
     if 'zigzag_label' not in df.columns:
@@ -69,6 +92,8 @@ def validate_inputs(df, feature_cols, stage1_model, STAGE1_SEQUENCE_LENGTH):
     print(f"  ✓ df shape: {df.shape}")
     
     # Check feature_cols
+    if feature_cols is None:
+        raise ValueError("feature_cols 未定義")
     if not isinstance(feature_cols, list):
         raise ValueError("feature_cols 必須是 list")
     if len(feature_cols) == 0:
@@ -80,7 +105,7 @@ def validate_inputs(df, feature_cols, stage1_model, STAGE1_SEQUENCE_LENGTH):
     
     # Check stage1_model
     if stage1_model is None:
-        raise ValueError("stage1_model 未載入")
+        raise ValueError("stage1_model 未載入。請確保已執行 Step 1")
     input_shape = stage1_model.input_shape
     print(f"  ✓ stage1_model input shape: {input_shape}")
     
@@ -89,7 +114,13 @@ def validate_inputs(df, feature_cols, stage1_model, STAGE1_SEQUENCE_LENGTH):
         raise ValueError("STAGE1_SEQUENCE_LENGTH 必須是正整數")
     print(f"  ✓ STAGE1_SEQUENCE_LENGTH: {STAGE1_SEQUENCE_LENGTH}")
     
+    # Check time_series_split
+    if time_series_split is None:
+        raise ValueError("time_series_split 函數未定義。請確保已執行 Step 3")
+    
     print("✓ 所有輸入驗證完成\n")
+    
+    return df, feature_cols, stage1_model, STAGE1_SEQUENCE_LENGTH, time_series_split
 
 
 def main():
@@ -99,35 +130,28 @@ def main():
     print("="*80)
     print("Stage 2 Step 4 - 數據分割 + 3D 轉換 + Stage 1 過濾")
     print("="*80)
+    print()
     
-    # Get variables from global scope (Colab)
-    try:
-        import IPython
-        ipython = IPython.get_ipython()
-        user_ns = ipython.user_ns
-        
-        df = user_ns.get('df')
-        feature_cols = user_ns.get('feature_cols')
-        stage1_model = user_ns.get('stage1_model')
-        STAGE1_SEQUENCE_LENGTH = user_ns.get('STAGE1_SEQUENCE_LENGTH', 10)
-        STAGE2_DATA_DIR = user_ns.get('STAGE2_DATA_DIR')
-        time_series_split = user_ns.get('time_series_split')
-        
-    except ImportError:
-        raise RuntimeError("此腳本必須在 IPython/Jupyter/Colab 環境中執行")
+    # Get IPython namespace
+    user_ns = get_ipython_namespace()
+    
+    if user_ns is None:
+        raise RuntimeError(
+            "此腳本必須在 IPython/Jupyter/Colab 環境中執行。\n"
+            "請在 Colab Cell 中執行：\n"
+            "  !curl -s https://raw.githubusercontent.com/caizongxun/crypto-zigzag-ml/main/scripts/stage2_step4_runner.py | python3"
+        )
     
     # Validate inputs
-    validate_inputs(df, feature_cols, stage1_model, STAGE1_SEQUENCE_LENGTH)
+    df, feature_cols, stage1_model, STAGE1_SEQUENCE_LENGTH, time_series_split = validate_inputs(user_ns)
     
     # Step 4A: Split data
     print("[4A/4D] 分割數據...")
-    if time_series_split is None:
-        raise ValueError("time_series_split 函數未定義")
-    
     train_df, val_df, test_df = time_series_split(df, train_ratio=0.7, validation_ratio=0.15)
     print(f"  Train: {len(train_df):,} rows")
     print(f"  Val: {len(val_df):,} rows")
-    print(f"  Test: {len(test_df):,} rows\n")
+    print(f"  Test: {len(test_df):,} rows")
+    print()
     
     # Extract 2D features
     X_train_2d = train_df[feature_cols].values
@@ -137,10 +161,11 @@ def main():
     X_test_2d = test_df[feature_cols].values
     y_test_2d = test_df['zigzag_label'].values
     
-    print(f"2D 特徵形狀：")
+    print("2D 特徵形狀：")
     print(f"  X_train_2d: {X_train_2d.shape}")
     print(f"  X_val_2d: {X_val_2d.shape}")
-    print(f"  X_test_2d: {X_test_2d.shape}\n")
+    print(f"  X_test_2d: {X_test_2d.shape}")
+    print()
     
     # Step 4B: Convert to 3D sequences
     print(f"[4B/4D] 轉換為 3D 序列 (seq_length={STAGE1_SEQUENCE_LENGTH})...")
@@ -148,7 +173,7 @@ def main():
     X_val_3d, y_val_3d = create_3d_sequences(X_val_2d, y_val_2d, seq_length=STAGE1_SEQUENCE_LENGTH)
     X_test_3d, y_test_3d = create_3d_sequences(X_test_2d, y_test_2d, seq_length=STAGE1_SEQUENCE_LENGTH)
     
-    print(f"3D 序列形狀：")
+    print("3D 序列形狀：")
     print(f"  X_train_3d: {X_train_3d.shape}")
     print(f"  X_val_3d: {X_val_3d.shape}")
     print(f"  X_test_3d: {X_test_3d.shape}")
@@ -161,7 +186,8 @@ def main():
             f"features={model_input_shape[2]})，"
             f"得到 (seq={X_train_3d.shape[1]}, features={X_train_3d.shape[2]})"
         )
-    print("✓ 形狀驗證通過\n")
+    print("✓ 形狀驗證通過")
+    print()
     
     # Step 4C: Apply Stage 1 Model
     print("[4C/4D] 應用 Stage 1 模型...")
@@ -184,7 +210,8 @@ def main():
     print(f"    X_stage2_train shape: {X_stage2_train.shape}")
     
     # Validation set
-    print("\n  === 驗證集 ===")
+    print()
+    print("  === 驗證集 ===")
     stage1_probs_val = stage1_model.predict(X_val_3d, batch_size=32, verbose=0)
     stage1_preds_val = (stage1_probs_val[:, 1] > 0.5).astype(int)
     signal_mask_val = stage1_preds_val == 1
@@ -201,7 +228,8 @@ def main():
     print(f"    X_stage2_val shape: {X_stage2_val.shape}")
     
     # Test set
-    print("\n  === 測試集 ===")
+    print()
+    print("  === 測試集 ===")
     stage1_probs_test = stage1_model.predict(X_test_3d, batch_size=32, verbose=0)
     stage1_preds_test = (stage1_probs_test[:, 1] > 0.5).astype(int)
     signal_mask_test = stage1_preds_test == 1
@@ -215,9 +243,11 @@ def main():
     X_stage2_test = X_stage2_test[valid_mask_test]
     y_stage2_test = y_stage2_test[valid_mask_test]
     print(f"    有效 Stage 2 樣本: {len(X_stage2_test):,}")
-    print(f"    X_stage2_test shape: {X_stage2_test.shape}\n")
+    print(f"    X_stage2_test shape: {X_stage2_test.shape}")
+    print()
     
-    print("✓ Stage 1 過濾完成\n")
+    print("✓ Stage 1 過濾完成")
+    print()
     
     # Step 4D: Save to global namespace
     print("[4D/4D] 將結果保存到全局命名空間...")
@@ -229,6 +259,7 @@ def main():
     user_ns['y_stage2_test'] = y_stage2_test
     
     # Optionally save to disk
+    STAGE2_DATA_DIR = user_ns.get('STAGE2_DATA_DIR')
     if STAGE2_DATA_DIR:
         STAGE2_DATA_DIR = Path(STAGE2_DATA_DIR)
         STAGE2_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -247,7 +278,8 @@ def main():
             pickle.dump(y_stage2_test, f)
         print(f"  數據已保存到: {STAGE2_DATA_DIR}")
     
-    print("✓ 完成\n")
+    print("✓ 完成")
+    print()
     
     # Summary
     print("="*80)
@@ -256,7 +288,8 @@ def main():
     print(f"訓練集: X_stage2_train {X_stage2_train.shape}")
     print(f"驗證集: X_stage2_val {X_stage2_val.shape}")
     print(f"測試集: X_stage2_test {X_stage2_test.shape}")
-    print("\n現在可以執行 Step 5 (保存數據) 或 Step 6 (訓練 Stage 2 模型)")
+    print()
+    print("現在可以執行 Step 5 (保存數據) 或 Step 6 (訓練 Stage 2 模型)")
     print("="*80)
 
 
